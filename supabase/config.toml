@@ -1,0 +1,35 @@
+# PlusZone - Avance-proyecto-PlusZone
+# https://supabase.com/docs/guides/local-development/cli/config
+# Ejecuta `supabase link` para vincular con tu proyecto en la dashboard.
+
+project_id = "avance-proyecto-pluszone"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:4000"
+additional_redirect_urls = ["https://leodaniel-rgb.github.io/Avance-proyecto-PlusZone/"]
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
