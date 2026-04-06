@@ -10,6 +10,7 @@
 - [Estructura del Proyecto](#estructura-del-proyecto)
 - [Instalación](#instalación)
 - [Uso](#uso)
+- [Docker](#docker)
 - [Documentación de Archivos](#documentación-de-archivos)
 - [Roles de Usuario](#roles-de-usuario)
 - [Categorías](#categorías)
@@ -139,6 +140,10 @@ Si abres la app sin backend configurado (o en modo solo frontend), puedes usar e
 - **Mensajes**: Sistema de mensajería (preparado)
 - **Dashboard**: Estadísticas y métricas
 - **Mi Perfil**: Edita tu información personal
+
+### Docker
+
+Para levantar API, servicio Python y el cliente estático con contenedores: `npm run docker:up` (requiere `server/.env`). Detalle de puertos y archivos en [`docs/DOCKER.md`](docs/DOCKER.md).
 
 ##  Documentación de Archivos
 

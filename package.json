@@ -12,7 +12,9 @@
     "sync:client": "node scripts/sync-client-config.mjs",
     "dev:web": "npx --yes serve client -l 8080",
     "python:install": "pip install -r python/requirements.txt",
-    "python:dev": "cd python && python3 -m uvicorn main:app --host 127.0.0.1 --port 5050 --reload"
+    "python:dev": "cd python && python3 -m uvicorn main:app --host 127.0.0.1 --port 5050 --reload",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
   },
   "engines": {
     "node": ">=16"
