@@ -2,7 +2,10 @@ Resumen rápido de la API
 
 Endpoints principales:
 - GET /api/ping -> comprobar si el servidor está activo
-- POST /api/auth/register -> { name, email, password, user_type } (email debe terminar en @tecmilenio.mx)
+- GET /api/python/health -> estado del microservicio Python (requiere PYTHON_SERVICE_URL en .env)
+- POST /api/match/score -> proxy a Python: { candidate_skills, job_skills } (mismo requisito)
+- POST /api/auth/session -> Bearer Supabase JWT; body opcional { user_type }; dominios según ALLOWED_EMAIL_DOMAINS
+- POST /api/auth/register -> { name, email, password, user_type } (dominio del email debe estar en ALLOWED_EMAIL_DOMAINS, p. ej. @tecmilenio.mx o @gmail.com)
 - POST /api/auth/verify -> { email, code }
 - POST /api/auth/login -> { email, password }
 - GET /api/profiles -> obtener perfiles visibles (solo usuarios verificados)

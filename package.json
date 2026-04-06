@@ -5,9 +5,14 @@
   "scripts": {
     "install-server": "npm --prefix server install",
     "server:dev": "npm --prefix server run dev",
-    "server:start": "node server/index.js",
-    "migrate": "node server/init_db.js",
-    "start": "npm run server:start"
+    "server:start": "NODE_OPTIONS=--dns-result-order=ipv4first node server/index.js",
+    "migrate": "NODE_OPTIONS=--dns-result-order=ipv4first node server/init_db.js",
+    "start": "npm run server:start",
+    "client": "npx --yes serve client -l 8080",
+    "sync:client": "node scripts/sync-client-config.mjs",
+    "dev:web": "npx --yes serve client -l 8080",
+    "python:install": "pip install -r python/requirements.txt",
+    "python:dev": "cd python && python3 -m uvicorn main:app --host 127.0.0.1 --port 5050 --reload"
   },
   "engines": {
     "node": ">=16"

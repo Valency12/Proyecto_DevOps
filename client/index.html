@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PlusZone - Tinder meets LinkedIn</title>
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
     <!-- Pantalla de Carga -->
@@ -61,6 +61,8 @@
                     </label>
                 </div>
                 <button type="submit" class="auth-button">Iniciar Sesión</button>
+                <div class="auth-divider"><span>o</span></div>
+                <button type="button" class="auth-button auth-button-google" onclick="handleGoogleLogin()">Continuar con Google</button>
             </form>
 
             <!-- Formulario de Registro -->
@@ -662,6 +664,7 @@
     <!-- Socket.IO y Supabase (Auth sin SMTP) -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="config.user.js"></script>
     <script src="config.js"></script>
     <script src="database.js"></script>
     <script src="app.js"></script>

@@ -54,6 +54,7 @@ La aplicación está diseñada con un enfoque en la experiencia de usuario, ofre
 - **JavaScript (Vanilla)**: Lógica de la aplicación sin frameworks
 - **localStorage**: Almacenamiento local de datos
 - **Unsplash API**: Imágenes de perfil de ejemplo
+- **Python (opcional)**: FastAPI para puntuación de afinidad candidato/oferta; ver `DOCUMENTACION.md` y `python/README.md`
 
 ## 📁 Estructura del Proyecto
 
@@ -85,10 +86,16 @@ Full-Stack-Project--main/
 │   ├── migrations/           # Esquema y RLS (supabase db push)
 │   └── seed.sql              # Datos iniciales (supabase db reset)
 │
+├── python/                    # Microservicio opcional (FastAPI: matching por skills)
+│   ├── main.py               # Endpoints /health y /api/match/score
+│   └── requirements.txt
+│
 ├── docs/                      # Documentación adicional
 │   ├── DEPLOYMENT.md         # Guía de despliegue y troubleshooting
-│   └── SUPABASE_SETUP.md     # 10 pasos Supabase + conectar a GitHub (Avance-proyecto-PlusZone)
+│   ├── SUPABASE_SETUP.md     # Pasos Supabase + conectar a GitHub
+│   └── GOOGLE_LOGIN.md       # Inicio de sesión con Google (Google Cloud + Supabase)
 │
+├── DOCUMENTACION.md           # Arquitectura, API, Python y enlaces
 └── README.md                  # Este archivo (documentación principal)
 ```
 

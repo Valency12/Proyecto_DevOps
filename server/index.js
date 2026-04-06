@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const http = require('http');
@@ -23,7 +23,7 @@ const path = require('path');
   }
 })();
 
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const { pool } = require('./db');
 
@@ -229,11 +229,81 @@ function generateCode() {
   return Math.floor(1000000 + Math.random() * 9000000).toString();
 }
 
+/** Dominios de correo aceptados (Supabase: correo/contraseña y OAuth, p. ej. Google). */
+function getAllowedEmailDomains() {
+  const raw = (process.env.ALLOWED_EMAIL_DOMAINS || 'tecmilenio.mx,gmail.com').trim();
+  return raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function isEmailDomainAllowed(email) {
+  if (!email || typeof email !== 'string') return false;
+  const at = email.indexOf('@');
+  if (at < 0) return false;
+  const domain = email.slice(at + 1).toLowerCase();
+  return getAllowedEmailDomains().includes(domain);
+}
+
 // Health
 app.get('/api/ping', (req, res) => res.json({ ok: true }));
 
+function getPythonServiceUrl() {
+  return (process.env.PYTHON_SERVICE_URL || '').trim().replace(/\/$/, '');
+}
+
+/** Estado del microservicio Python (matching). Requiere PYTHON_SERVICE_URL. */
+app.get('/api/python/health', async (req, res) => {
+  const base = getPythonServiceUrl();
+  if (!base) {
+    return res.status(503).json({
+      ok: false,
+      configured: false,
+      error: 'PYTHON_SERVICE_URL no está definido en server/.env'
+    });
+  }
+  try {
+    const r = await fetch(base + '/health');
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : r.status).json({ ok: r.ok, python: data, url: base });
+  } catch (e) {
+    console.error('Python health:', e);
+    return res.status(502).json({ ok: false, error: 'No se pudo contactar el servicio Python', detail: e.message });
+  }
+});
+
+/**
+ * Proxy al servicio Python: puntuación de afinidad candidato ↔ oferta (skills).
+ * Body: { "candidate_skills": ["React","Node"], "job_skills": ["React","TypeScript"] }
+ */
+app.post('/api/match/score', async (req, res) => {
+  const base = getPythonServiceUrl();
+  if (!base) {
+    return res.status(503).json({
+      error: 'Servicio Python no configurado',
+      hint: 'Define PYTHON_SERVICE_URL en server/.env y arranca uvicorn (ver DOCUMENTACION.md).'
+    });
+  }
+  try {
+    const r = await fetch(base + '/api/match/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {})
+    });
+    const text = await r.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+    return res.status(r.status).json(data);
+  } catch (e) {
+    console.error('Proxy /api/match/score:', e);
+    return res.status(502).json({ error: 'No se pudo contactar el servicio Python', detail: e.message });
+  }
+});
+
 // Sesión desde Supabase Auth (JWT). Crea/sincroniza usuario en nuestra DB y devuelve nuestro user.
-// El frontend usa Supabase Auth para registro/login; Supabase envía el correo de verificación (sin SMTP).
+// El frontend usa Supabase Auth (correo/contraseña y OAuth Google); Supabase envía verificación de correo cuando aplica.
 app.post('/api/auth/session', async (req, res) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -250,19 +320,33 @@ app.post('/api/auth/session', async (req, res) => {
   }
 
   const email = payload.email;
-  if (!email || !email.toLowerCase().endsWith('@tecmilenio.mx')) {
-    return res.status(403).json({ error: 'Solo se permiten correos @tecmilenio.mx' });
+  if (!email || !isEmailDomainAllowed(email)) {
+    return res.status(403).json({
+      error: 'Dominio de correo no permitido. Configura ALLOWED_EMAIL_DOMAINS o usa un correo autorizado (p. ej. @gmail.com o @tecmilenio.mx).'
+    });
   }
 
   const metadata = payload.user_metadata || {};
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const preferredType = body.user_type === 'company' ? 'company' : 'employee';
+  let userType = preferredType;
+  if (metadata.user_type === 'company' || metadata.user_type === 'employee') {
+    userType = metadata.user_type;
+  }
+
   const name = metadata.full_name || metadata.name || (email.split('@')[0] || 'Usuario');
-  const userType = metadata.user_type || 'employee';
+  const picture = metadata.avatar_url || metadata.picture || metadata.picture_url || null;
 
   try {
     const { rows: existing } = await pool.query('SELECT id, email, name, user_type, image_url, description FROM users WHERE email = $1', [email]);
     if (existing.length > 0) {
       const u = existing[0];
-      await pool.query('UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1', [u.id]);
+      if (picture) {
+        await pool.query('UPDATE users SET is_active = true, updated_at = NOW(), image_url = $2 WHERE id = $1', [u.id, picture]);
+      } else {
+        await pool.query('UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1', [u.id]);
+      }
+      const imageUrl = picture || u.image_url || null;
       return res.json({
         ok: true,
         user: {
@@ -270,7 +354,7 @@ app.post('/api/auth/session', async (req, res) => {
           email: u.email,
           name: u.name,
           type: u.user_type,
-          imageUrl: u.image_url || null,
+          imageUrl: imageUrl || null,
           description: u.description || ''
         }
       });
@@ -278,12 +362,12 @@ app.post('/api/auth/session', async (req, res) => {
 
     const result = await pool.query(
       'INSERT INTO users (email, password_hash, name, user_type, image_url, description, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-      [email, '', name, userType, null, null, true]
+      [email, '', name, userType, picture, null, true]
     );
     const userId = result.rows[0].id;
     await pool.query(
       'INSERT INTO profiles (user_id, name, description, detailed_description, tech_stack, salary, image_url, role) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [userId, name, '', '', JSON.stringify([]), '', null, userType === 'company' ? 'job' : 'candidate']
+      [userId, name, '', '', JSON.stringify([]), '', picture, userType === 'company' ? 'job' : 'candidate']
     );
 
     try {
@@ -299,7 +383,7 @@ app.post('/api/auth/session', async (req, res) => {
         email,
         name,
         type: userType,
-        imageUrl: null,
+        imageUrl: picture || null,
         description: ''
       }
     });
@@ -314,8 +398,10 @@ app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, user_type } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'Datos incompletos' });
 
-  if (!email.toLowerCase().endsWith('@tecmilenio.mx')) {
-    return res.status(400).json({ error: 'El correo debe pertenecer al dominio @tecmilenio.mx' });
+  if (!isEmailDomainAllowed(email)) {
+    return res.status(400).json({
+      error: 'El dominio del correo no está permitido. Usa uno de los dominios configurados (p. ej. @tecmilenio.mx o @gmail.com).'
+    });
   }
 
   try {
@@ -581,6 +667,32 @@ async function ensureDatabaseReady() {
       console.log('Base de datos lista: tablas disponibles.');
       return;
     } catch (err) {
+      if (err && (err.code === 'XX000' || /tenant or user not found/i.test(err.message || ''))) {
+        const url = process.env.DATABASE_URL || '';
+        console.error('\n---');
+        console.error('Tenant or user not found: el pooler no reconoce usuario/contraseña o región.');
+        console.error('1) Supabase → Database → Connect: copia la URI COMPLETA (no inventes el host; puede ser aws-0- o aws-1-REGION).');
+        console.error('2) Pega la contraseña actual de la base en el modal y usa "Copy", o resetea la contraseña (Database → Database password).');
+        console.error('3) Si falla Session (5432), prueba Transaction pooler (6543) en el mismo modal.');
+        console.error('4) Caracteres especiales en la contraseña deben ir codificados en la URL (ej. ! como %21).');
+        console.error('---\n');
+        throw new Error(
+          'Pooler: revisa DATABASE_URL (copiar desde Connect) y contraseña de Postgres. ' + (err.message || '')
+        );
+      }
+      if (err && err.code === 'ENETUNREACH') {
+        const url = process.env.DATABASE_URL || '';
+        const hintDirect = url.includes('db.') && url.includes('supabase.co') && !url.includes('pooler');
+        console.error('\n---');
+        console.error('ENETUNREACH: tu red no alcanza la IPv6 del host de conexión directa (db.*.supabase.co).');
+        if (hintDirect) {
+          console.error('Solución: en Supabase → Database → Connect → Connection string → elige Session pooler o Transaction pooler, Type: URI, y sustituye DATABASE_URL en server/.env (usa host ...pooler.supabase.com, no db....).');
+        }
+        console.error('---\n');
+        throw new Error(
+          'DATABASE_URL: usa la URI del pooler desde el dashboard de Supabase, o habilita IPv6 en tu red. ' + err.message
+        );
+      }
       const noTable = err && (err.code === '42P01' || /relation "users" does not exist/i.test(err.message));
       if (noTable) {
         console.log('Tablas faltantes detectadas.');

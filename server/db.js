@@ -1,5 +1,11 @@
+const path = require('path');
+const dns = require('dns');
 const { Pool } = require('pg');
-require('dotenv').config();
+// Evita fallos ENETUNREACH si solo hay ruta IPv6 al host de Supabase
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const getEnv = (k, fallback) => {
   const v = process.env[k];

@@ -7,6 +7,37 @@ const supabaseClient = (SUPABASE_URL && SUPABASE_ANON_KEY && typeof window.supab
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
+function getAllowedEmailDomainsList() {
+  const raw = (typeof window !== 'undefined' && window.ALLOWED_EMAIL_DOMAINS) || 'tecmilenio.mx,gmail.com';
+  return raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function isAllowedRegisterEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  const parts = email.split('@');
+  if (parts.length < 2) return false;
+  const domain = parts.pop().toLowerCase();
+  return getAllowedEmailDomainsList().includes(domain);
+}
+
+/** Sincroniza el usuario en nuestra API tras un JWT de Supabase (correo/contraseña u OAuth Google). */
+async function syncBackendSession(accessToken, explicitUserType) {
+  let userType = 'employee';
+  if (explicitUserType === 'company' || explicitUserType === 'employee') {
+    userType = explicitUserType;
+  } else if (typeof localStorage !== 'undefined') {
+    const pending = localStorage.getItem('pluszone_oauth_user_type');
+    if (pending === 'company' || pending === 'employee') userType = pending;
+  }
+  const resp = await fetch(API_BASE + '/api/auth/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + accessToken },
+    body: JSON.stringify({ user_type: userType })
+  });
+  const sessionData = await resp.json();
+  return { resp, sessionData };
+}
+
 // Datos mock de perfiles
 const mockProfiles = [
     // Candidatos (Empleados)
@@ -768,23 +799,35 @@ function getAvailableCategories() {
 
 // ===== PANTALLA DE CARGA =====
 async function initLoadingScreen() {
-    await new Promise(r => setTimeout(r, 2000));
+    const oauthReturn = typeof window !== 'undefined' && (
+        /access_token|refresh_token|provider_token|type=/.test(window.location.hash || '') ||
+        /[?&]code=/.test(window.location.search || '')
+    );
+    // Tras OAuth, el cliente a veces tarda un instante en leer la sesión; acortamos la animación inicial.
+    await new Promise(r => setTimeout(r, oauthReturn ? 300 : 2000));
     const loadingScreen = document.getElementById('loadingScreen');
     loadingScreen.classList.add('hidden');
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, oauthReturn ? 150 : 500));
     loadingScreen.style.display = 'none';
 
-    // Restaurar sesión Supabase si existe (p. ej. usuario volvió tras confirmar correo)
+    // Restaurar sesión Supabase si existe (p. ej. OAuth Google o confirmación de correo)
     if (supabaseClient && API_BASE) {
         try {
-            const { data } = await supabaseClient.auth.getSession();
-            if (data?.session?.access_token) {
-                const resp = await fetch(API_BASE + '/api/auth/session', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + data.session.access_token }
-                });
-                const sessionData = await resp.json();
+            let accessToken = null;
+            for (let attempt = 0; attempt < 12; attempt++) {
+                const { data } = await supabaseClient.auth.getSession();
+                if (data?.session?.access_token) {
+                    accessToken = data.session.access_token;
+                    break;
+                }
+                await new Promise(r => setTimeout(r, oauthReturn ? 200 : 0));
+            }
+            if (accessToken) {
+                const { resp, sessionData } = await syncBackendSession(accessToken);
                 if (resp.ok && sessionData.user) {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.removeItem('pluszone_oauth_user_type');
+                    }
                     state.currentUser = {
                         id: sessionData.user.id,
                         email: sessionData.user.email,
@@ -799,9 +842,16 @@ async function initLoadingScreen() {
                     showMainApp();
                     return;
                 }
+                const apiErr = (sessionData && sessionData.error) ? sessionData.error : ('Error HTTP ' + resp.status);
+                const hint = ' Comprueba: 1) En otra terminal `npm run server:start`. 2) `SUPABASE_JWT_SECRET` en server/.env. 3) Dominio del correo en ALLOWED_EMAIL_DOMAINS (gmail.com).';
+                showToast('Google inició sesión, pero la API no sincronizó: ' + apiErr + '.' + hint, 'error');
+                console.error('syncBackendSession:', resp.status, sessionData);
+            } else if (oauthReturn) {
+                showToast('Volviste de Google pero no hay sesión en el navegador. Revisa Redirect URLs en Supabase (http://localhost:8080/**).', 'error');
             }
         } catch (e) {
             console.warn('Session restore:', e);
+            showToast('No se pudo contactar la API en ' + API_BASE + '. Arranca el servidor (npm run server:start).', 'error');
         }
     }
     showAuthScreen();
@@ -831,6 +881,31 @@ function switchAuthTab(tab) {
     }
 }
 
+async function handleGoogleLogin() {
+    if (!supabaseClient || !API_BASE) {
+        alert('Configura SUPABASE_URL y SUPABASE_ANON_KEY en config.js y la URL de la API.');
+        return;
+    }
+    const userType = document.querySelector('input[name="userType"]:checked')?.value || 'employee';
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('pluszone_oauth_user_type', userType === 'company' ? 'company' : 'employee');
+        }
+        const redirectTo = window.location.href.split('#')[0].split('?')[0];
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo }
+        });
+        if (error) throw error;
+    } catch (e) {
+        console.error('Google OAuth:', e);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem('pluszone_oauth_user_type');
+        }
+        alert(e.message || 'No se pudo iniciar sesión con Google. Activa el proveedor Google en Supabase y revisa la URL de redirección.');
+    }
+}
+
 async function handleLogin(e) {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value.trim();
@@ -851,12 +926,11 @@ async function handleLogin(e) {
         try {
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
             if (!error && data.session) {
-                const resp = await fetch(API_BASE + '/api/auth/session', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + data.session.access_token }
-                });
-                const sessionData = await resp.json();
+                const { resp, sessionData } = await syncBackendSession(data.session.access_token, userType);
                 if (resp.ok && sessionData.user) {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.removeItem('pluszone_oauth_user_type');
+                    }
                     state.currentUser = {
                         id: sessionData.user.id,
                         email: sessionData.user.email,
@@ -1086,8 +1160,8 @@ async function handleRegister(e) {
         showAuthError('registerForm', 'Por favor, ingresa un email válido');
         return;
     }
-    if (!email.toLowerCase().endsWith('@tecmilenio.mx')) {
-        showAuthError('registerForm', 'El correo debe ser @tecmilenio.mx');
+    if (!isAllowedRegisterEmail(email)) {
+        showAuthError('registerForm', 'Usa un correo con dominio permitido (por ejemplo @gmail.com o @tecmilenio.mx).');
         return;
     }
 
@@ -1107,7 +1181,7 @@ async function handleRegister(e) {
                 }
             });
             if (!error) {
-                showAuthSuccess('registerForm', 'Cuenta creada. Revisa tu correo (@tecmilenio.mx) y haz clic en el enlace para confirmar. Luego podrás iniciar sesión.');
+                showAuthSuccess('registerForm', 'Cuenta creada. Revisa tu correo y haz clic en el enlace para confirmar. Luego podrás iniciar sesión.');
                 return;
             }
             if (error.message && error.message.toLowerCase().includes('already registered')) {
@@ -2893,6 +2967,7 @@ window.resetDemoData = resetDemoData;
 
 // Funciones globales para HTML
 window.switchAuthTab = switchAuthTab;
+window.handleGoogleLogin = handleGoogleLogin;
 window.handleLogin = handleLogin;
 window.handleRegister = handleRegister;
 window.showSection = showSection;

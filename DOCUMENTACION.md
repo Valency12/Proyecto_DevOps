@@ -35,6 +35,12 @@ y arranca el servidor (por ejemplo `node server/index.js` o `npm start` en `serv
 - **Frontend:** HTML, CSS, JavaScript (vanilla). Sin framework.
 - **Base de datos en el navegador:** `client/database.js` — simula una DB con localStorage (usuarios, perfiles, swipes, matches, mensajes).
 - **Servidor (opcional):** Node.js + Express en `server/`. API REST para registro con verificación por correo, login, perfiles; usa PostgreSQL y opcionalmente SMTP/API de email para el código.
+- **Autenticación en la nube:** Supabase Auth (correo/contraseña y **Google OAuth**); el backend valida el JWT en `POST /api/auth/session`.
+- **Servicio Python (opcional):** microservicio FastAPI en `python/` para puntuar afinidad candidato ↔ oferta por skills; el Node puede hacer de proxy en `POST /api/match/score` si defines `PYTHON_SERVICE_URL`.
+
+**Guías separadas:**
+
+- **[docs/GOOGLE_LOGIN.md](docs/GOOGLE_LOGIN.md)** — configuración paso a paso del inicio de sesión con Google (Google Cloud + Supabase + URLs).
 
 ---
 
@@ -51,10 +57,16 @@ Avance-proyecto-PlusZone/
 │   ├── DEMO-CREDENTIALS.md # Credenciales de ejemplo (empleado y empresa)
 │   └── ...
 ├── server/                 # Backend (opcional)
-│   ├── index.js            # Express: rutas /api/auth/*, /api/profiles, Socket.IO, envío de código
+│   ├── index.js            # Express: rutas /api/auth/*, /api/profiles, proxy Python, Socket.IO
 │   ├── db.js               # Conexión a PostgreSQL
 │   ├── init_db.js          # Migración y seed de la DB
 │   └── ...
+├── python/                 # Microservicio opcional (matching por skills)
+│   ├── main.py             # FastAPI: /health, /api/match/score
+│   ├── requirements.txt
+│   └── README.md
+├── docs/
+│   └── GOOGLE_LOGIN.md     # Paso a paso: login con Google
 ├── database/               # Esquema SQL (PostgreSQL/Supabase)
 │   └── pluszone_supabase.sql
 ├── DOCUMENTACION.md        # Este archivo
@@ -119,8 +131,14 @@ Avance-proyecto-PlusZone/
 
 ### 5.1 Auth y código de verificación
 
-- **POST /api/auth/register**  
-  - Solo acepta correos `@tecmilenio.mx`.  
+- **Supabase Auth (recomendado en producción)**  
+  - Registro e inicio de sesión con correo/contraseña o **Google** desde el cliente (`@supabase/supabase-js`).  
+  - Tras obtener sesión, el cliente llama a **`POST /api/auth/session`** con `Authorization: Bearer <access_token>` y cuerpo opcional `{ "user_type": "employee" | "company" }` para usuarios nuevos (p. ej. OAuth sin metadata).  
+  - El servidor verifica el JWT con `SUPABASE_JWT_SECRET` y comprueba el dominio del correo contra **`ALLOWED_EMAIL_DOMAINS`** (por defecto incluye `tecmilenio.mx` y `gmail.com`).  
+  - Configuración detallada de Google: **[docs/GOOGLE_LOGIN.md](docs/GOOGLE_LOGIN.md)**.
+
+- **POST /api/auth/register** (flujo legacy con código de 7 dígitos)  
+  - Solo acepta correos cuyo dominio esté en `ALLOWED_EMAIL_DOMAINS` (p. ej. `@tecmilenio.mx`, `@gmail.com`).  
   - Crea usuario en PostgreSQL (`is_active = false`) y un perfil asociado.  
   - Genera código de 7 dígitos con `generateCode()`, lo guarda en `email_verifications` con `expires_at`.  
   - Intenta enviar el código por email (`sendVerificationEmail`). Si no puede (SMTP no configurado, etc.), hace fallback: escribe el código en `verification_debug.log` y, si aplica (desarrollo), incluye **`devCode`** en la respuesta JSON para que el cliente lo muestre en el modal.
@@ -141,6 +159,40 @@ Avance-proyecto-PlusZone/
 ### 5.3 Email y fallback
 
 - `sendVerificationEmail()`: puede usar API de email (si está configurada) o SMTP. Si no puede enviar y el fallback está permitido (`NODE_ENV !== 'production'` o `ALLOW_DEV_CODE_IN_RESPONSE`), escribe en `verification_debug.log` y la ruta que llama a esta función devuelve `devCode` en el JSON para desarrollo.
+
+### 5.4 Servicio Python (matching por skills)
+
+Propósito: separar en **Python** la lógica que puede crecer (ML, pesos por skill, NLP) sin acoplarla al proceso principal de Node.
+
+**Ubicación:** carpeta `python/` — aplicación **FastAPI** (`main.py`).
+
+**Endpoints del microservicio (puerto por defecto 5050):**
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/health` | Comprueba que el servicio está vivo. |
+| POST | `/api/match/score` | Cuerpo JSON: `{ "candidate_skills": ["React","Node"], "job_skills": ["React","TypeScript"] }`. Respuesta: `score` (0–100), `matched` (intersección), método **Jaccard**. |
+
+**Integración con Node:**
+
+1. En `server/.env` define **`PYTHON_SERVICE_URL=http://127.0.0.1:5050`** (sin barra final).
+2. Arranca Python en una terminal:  
+   `npm run python:dev`  
+   (o manualmente: `cd python && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 -m uvicorn main:app --host 127.0.0.1 --port 5050 --reload`).
+3. Arranca el servidor Node en otra terminal (`npm run server:start`).
+4. El cliente (o herramientas como `curl`) puede llamar al **mismo contrato** vía proxy:
+   - **`GET /api/python/health`** — comprueba configuración y conectividad con Python.
+   - **`POST /api/match/score`** — reenvía el body al servicio Python.
+
+Si **`PYTHON_SERVICE_URL`** no está definido, esas rutas responden **503** con un mensaje indicando que hay que configurar y levantar el servicio.
+
+**Instalación de dependencias Python (una vez):**  
+En muchos sistemas Linux hay que usar un **venv** (PEP 668):  
+`cd python && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`  
+En Windows: `python -m venv .venv` y luego `.venv\Scripts\activate`.  
+Alternativa: `npm run python:install` si tu `pip` apunta a un entorno donde está permitido instalar paquetes.
+
+**Ampliaciones típicas en Python:** modelos de recomendación, embeddings de descripciones de perfil, pipelines de datos batch sobre PostgreSQL, o workers que consuman una cola; el patrón actual (HTTP + proxy desde Node) permite sustituir la implementación sin cambiar la URL que consume el frontend.
 
 ---
 
@@ -165,4 +217,11 @@ Con esto puedes probar tanto el flujo con código de la API (registro + verifica
 
 ---
 
-*Documentación generada para el proyecto PlusZone. Para más detalle, revisar los comentarios en `client/app.js`, `client/database.js` y `server/index.js`.*
+## 8. Enlaces útiles
+
+- **[docs/GOOGLE_LOGIN.md](docs/GOOGLE_LOGIN.md)** — Configuración paso a paso del inicio de sesión con Google (Google Cloud Console, Supabase, variables de entorno).
+- **[python/README.md](python/README.md)** — Arranque rápido del microservicio Python.
+
+---
+
+*Documentación generada para el proyecto PlusZone. Para más detalle, revisar los comentarios en `client/app.js`, `client/database.js`, `server/index.js` y `python/main.py`.*
