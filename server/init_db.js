@@ -27,7 +27,7 @@ function splitSql(sql) {
     }
     if (!inDollar && sql[i] === ';') {
       const stmt = current.trim();
-      if (stmt && !stmt.startsWith('--')) statements.push(stmt);
+      if (stmt) statements.push(stmt);
       current = '';
       i++;
       continue;
@@ -35,7 +35,7 @@ function splitSql(sql) {
     current += sql[i];
     i++;
   }
-  if (current.trim() && !current.trim().startsWith('--')) statements.push(current.trim());
+  if (current.trim()) statements.push(current.trim());
   return statements;
 }
 
@@ -46,7 +46,10 @@ async function run() {
     if (fs.existsSync(SQL_PATH)) {
       const sql = fs.readFileSync(SQL_PATH, 'utf8');
       const trimmed = sql.split('-- Fin del esquema PlusZone')[0].trim();
-      const statements = splitSql(trimmed);
+      // Elimina comentarios de línea para no perder sentencias válidas
+      // precedidas por "--" (ej. "-- Tabla de usuarios" + "CREATE TABLE ...").
+      const sqlWithoutComments = trimmed.replace(/^\s*--.*$/gm, '');
+      const statements = splitSql(sqlWithoutComments);
       for (const stmt of statements) {
         if (!stmt) continue;
         try {

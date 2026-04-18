@@ -1,0 +1,240 @@
+PROYECTO FENIX: ESTRATEGIA DE RE-ARQUITECTURA Y MIGRACION
+Proyecto base: PlusZone (Proyecto_DevOps)
+
+============================================================
+1) OBJETIVO DEL PROYECTO
+============================================================
+Realizar una migracion controlada de la aplicacion PlusZone hacia una arquitectura cloud en AWS para mejorar:
+
+- Disponibilidad: reducir caidas y dependencia de un solo servidor.
+- Escalabilidad: soportar picos de trafico sin degradar la experiencia.
+- Seguridad: fortalecer control de accesos, red y cifrado.
+- Velocidad de despliegue: estandarizar y automatizar entregas.
+- Mantenibilidad: separar responsabilidades por componentes.
+
+Problemas actuales que se atacan:
+- Dependencia de despliegues manuales y configuraciones por entorno.
+- Riesgo operativo por falta de infraestructura como codigo.
+- Escalado limitado en backend y procesamiento de microservicios.
+- Seguridad concentrada en configuraciones locales y no en capas cloud administradas.
+
+============================================================
+2) ALCANCE DEL PROYECTO
+============================================================
+Componentes actuales en el repositorio y su destino propuesto en AWS:
+
+1. Frontend
+- Actual: carpeta client/ (estatico), actualmente con despliegue tipo GitHub Pages/nginx.
+- Destino AWS: S3 (hosting estatico) + CloudFront (CDN) + Route 53 (DNS) + ACM (TLS).
+
+2. API Node.js
+- Actual: carpeta server/ (Express).
+- Destino AWS: ECS Fargate (contenedor) o EC2 Auto Scaling como alternativa.
+- Recomendado para este proyecto: ECS Fargate por menor carga operativa.
+
+3. Microservicio Python (matching)
+- Actual: carpeta python/ (FastAPI).
+- Destino AWS: ECS Fargate en servicio separado.
+
+4. Base de datos PostgreSQL
+- Actual: Supabase PostgreSQL (externo).
+- Destino AWS propuesto para fase de migracion completa: Amazon RDS for PostgreSQL.
+- Nota: en una fase intermedia se puede mantener Supabase para reducir riesgo.
+
+5. Archivos, respaldos y artefactos
+- Actual: almacenamiento local o no estandarizado.
+- Destino AWS: S3 (backups, artefactos de build, exportaciones, logs de apoyo).
+
+6. Observabilidad y seguridad operativa
+- Actual: logs en runtime y seguimiento manual.
+- Destino AWS: CloudWatch (logs/metricas), CloudTrail (auditoria), IAM y VPC.
+
+Fuera de alcance (fase actual):
+- Reescritura completa del frontend o cambio de framework.
+- Rediseño funcional de producto (features nuevas de negocio).
+- Migracion multi-cloud.
+
+============================================================
+3) ANALISIS: INFRAESTRUCTURA ACTUAL VS PROPUESTA
+============================================================
+Infraestructura actual (segun repo):
+- App dividida en client/, server/, python/, supabase/.
+- Uso de docker-compose para entorno local.
+- Despliegue frontend desacoplado del backend.
+- Integracion de autenticacion y BD con Supabase.
+
+Limitaciones actuales:
+- No existe infraestructura como codigo en AWS aun.
+- Escalado depende del hosting elegido y no esta estandarizado.
+- Seguridad de red no centralizada con controles VPC por capas.
+- CI/CD no consolidado para backend + infraestructura + rollback.
+
+Propuesta AWS:
+- Frontend en S3 + CloudFront.
+- API y microservicio en ECS Fargate (servicios independientes).
+- Base de datos en RDS PostgreSQL Multi-AZ (objetivo final).
+- IaC con CloudFormation.
+- CI/CD con GitHub Actions + CodeBuild/CodeDeploy (opcional) o pipeline directo con AWS CLI.
+- Seguridad por capas con IAM, VPC privada, Security Groups, Secrets Manager.
+
+Justificacion tecnica:
+- Servicios administrados reducen operacion manual.
+- Separacion de frontend/API/microservicio mejora escalabilidad independiente.
+- CloudFront reduce latencia para usuarios.
+- RDS Multi-AZ mejora continuidad y recuperacion.
+
+============================================================
+4) DEFINICION DE LA ESTRATEGIA DE MIGRACION
+============================================================
+Estrategia recomendada: Replatforming + Refactoring ligero.
+
+Por que no solo "lift and shift":
+- Ya existe contenedorizacion local, por lo que conviene replatform hacia servicios administrados.
+- Se requiere mejorar seguridad y automatizacion, no solo mover servidores.
+
+Plan de migracion sin afectar usuario final:
+
+Fase 0 - Preparacion
+- Inventario tecnico de variables de entorno, endpoints y dependencias.
+- Congelamiento de cambios criticos durante ventana de corte.
+
+Fase 1 - Frontend
+- Migrar sitio estatico a S3 + CloudFront.
+- Mantener API actual mientras se valida la distribucion.
+
+Fase 2 - Backend y Python
+- Publicar imagenes de server/ y python/ en ECR.
+- Desplegar servicios en ECS Fargate con balanceador (ALB).
+- Ejecutar pruebas smoke y contract tests de endpoints.
+
+Fase 3 - Base de datos
+- Estrategia A (bajo riesgo): mantener Supabase temporalmente.
+- Estrategia B (objetivo): migrar a RDS PostgreSQL con AWS DMS + validacion.
+- Aplicar corte con ventana corta, sincronizacion final y cambio de DNS/API.
+
+Fase 4 - Estabilizacion
+- Monitoreo intensivo, metricas, alertas y rollback documentado.
+
+============================================================
+5) PLAN DE IMPLEMENTACION (ROADMAP)
+============================================================
+5.1 Provisionamiento (CloudFormation)
+- Crear stacks para:
+  - Red: VPC, subredes publicas/privadas, NAT, tablas de ruta.
+  - Seguridad: Security Groups, roles IAM, politicas minimas.
+  - Compute: ECS cluster, task definitions, services, ALB.
+  - Datos: RDS PostgreSQL, subnet group, backups, parametros.
+  - Frontend: bucket S3, distribucion CloudFront, certificados ACM.
+  - Observabilidad: CloudWatch log groups, alarmas.
+
+5.2 Migracion de datos
+- Si se mantiene Supabase temporalmente: solo replicar backups y preparar scripts.
+- Para migracion a RDS:
+  - Crear esquema inicial en RDS.
+  - Carga inicial con DMS (full load).
+  - CDC (cambios continuos) hasta ventana de corte.
+  - Validacion de conteos, checksums y pruebas funcionales.
+  - Cutover y cambio de cadenas de conexion.
+
+5.3 CI/CD
+- Pipeline propuesto:
+  1) Pull Request: lint + pruebas.
+  2) Merge a main: build de imagenes server/python.
+  3) Push a ECR.
+  4) Deploy automatico a ECS (rolling update).
+  5) Frontend build/deploy a S3 + invalidacion CloudFront.
+  6) Paso de aprobacion manual para produccion.
+
+============================================================
+6) ESTRATEGIA DE SEGURIDAD Y ESCALABILIDAD
+============================================================
+Seguridad:
+- IAM por roles de servicio (principio de minimo privilegio).
+- VPC con RDS en subred privada (sin acceso publico).
+- Security Groups: solo trafico necesario entre ALB -> ECS -> RDS.
+- Secrets Manager / Parameter Store para credenciales (no en repo).
+- Cifrado en transito (TLS) y en reposo (S3/RDS).
+- WAF en CloudFront/ALB para proteccion basica de capa 7.
+- CloudTrail para auditoria de cambios.
+
+Escalabilidad:
+- ECS Service Auto Scaling por CPU/memoria y requests.
+- ALB para distribuir trafico.
+- CloudFront para descarga de contenido estatico.
+- RDS con lectura optimizada (read replica) si crece carga de lectura.
+- Cola asincrona (SQS) para tareas pesadas futuras (opcional).
+
+============================================================
+7) ESTIMACION DE COSTOS Y RECURSOS (ALTO NIVEL)
+============================================================
+Componentes de costo principales:
+- ECS Fargate (2 servicios: Node + Python).
+- ALB.
+- RDS PostgreSQL (instancia + almacenamiento + backups).
+- S3 + CloudFront + transferencia.
+- CloudWatch (logs/metricas).
+- ECR (imagenes).
+
+Enfoque costo-efectivo:
+- Empezar con tamanos pequenos y autoescalado.
+- Ambientes separados (dev/staging/prod) con politicas de apagado en dev.
+- Reservar capacidad solo cuando haya patron estable.
+- Evitar sobredimensionamiento inicial.
+
+Recomendacion:
+- Generar estimacion formal en AWS Pricing Calculator con:
+  - Trafico esperado mensual.
+  - Usuarios concurrentes en hora pico.
+  - Tamano de BD y crecimiento mensual.
+  - Retencion de logs.
+
+============================================================
+DONDE IMPLEMENTAR CADA PUNTO DENTRO DE ESTE PROYECTO
+============================================================
+Mapa practico por carpetas/archivos del repo:
+
+1. Definicion funcional y alcance
+- DOCUMENTACION.md
+- README.md
+- docs/DEPLOYMENT.md
+
+2. Frontend (migracion a S3/CloudFront)
+- client/ (fuente estatico)
+- docs/DEPLOYMENT.md (actualizar guia de despliegue AWS)
+
+3. API y microservicio (migracion a ECS)
+- server/ (Node API)
+- python/ (FastAPI)
+- docker-compose.yml (referencia local de servicios)
+
+4. Base de datos y estrategia de datos
+- supabase/migrations/
+- supabase/seed.sql
+- database/pluszone_supabase.sql
+- docs/SUPABASE_SETUP.md
+
+5. Provisionamiento IaC (nuevo)
+- Crear carpeta: infra/
+- Archivos sugeridos:
+  - infra/network.yaml
+  - infra/compute.yaml
+  - infra/database.yaml
+  - infra/frontend.yaml
+  - infra/security.yaml
+
+6. CI/CD (nuevo)
+- Crear carpeta: .github/workflows/
+- Archivos sugeridos:
+  - ci.yml
+  - deploy-staging.yml
+  - deploy-production.yml
+
+7. Seguridad y operacion (documentacion)
+- docs/SECURITY_AWS.md (nuevo)
+- docs/OPERACION_AWS.md (nuevo)
+
+============================================================
+CIERRE EJECUTIVO
+============================================================
+La propuesta migra PlusZone a una arquitectura AWS moderna, segura y escalable sin rehacer el producto desde cero. Se prioriza una migracion por fases para minimizar riesgo y mantener continuidad operativa. El enfoque recomendado combina Replatforming (contenedores + servicios administrados) con refactoring puntual para observabilidad, seguridad y despliegues automatizados.
+

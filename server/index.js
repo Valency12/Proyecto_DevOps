@@ -243,6 +243,12 @@ function isEmailDomainAllowed(email) {
   return getAllowedEmailDomains().includes(domain);
 }
 
+function shouldIncludeDevCodeInResponse() {
+  // Producción: oculto por defecto.
+  // Desarrollo: solo se muestra si se habilita explícitamente.
+  return (process.env.ALLOW_DEV_CODE_IN_RESPONSE || '').toLowerCase() === 'true';
+}
+
 // Health
 app.get('/api/ping', (req, res) => res.json({ ok: true }));
 
@@ -431,7 +437,7 @@ app.post('/api/auth/register', async (req, res) => {
       if (sendResult.sent) {
         return res.json({ ok: true, message: 'Cuenta existente pendiente de verificación. Se ha reenviado un código.' });
       }
-      const allowDevCodeResend = process.env.NODE_ENV !== 'production' || (process.env.ALLOW_DEV_CODE_IN_RESPONSE || '').toLowerCase() === 'true';
+      const allowDevCodeResend = shouldIncludeDevCodeInResponse();
       if (sendResult.fallback) {
         const payload = { ok: true, warning: 'No se pudo enviar el correo. Código guardado en el servidor (verification_debug.log).' };
         if (allowDevCodeResend && code) payload.devCode = code;
@@ -470,7 +476,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (sendResult.sent) {
       return res.json({ ok: true, message: 'Usuario registrado. Revisa tu correo para verificar la cuenta.' });
     }
-    const allowDevCode = process.env.NODE_ENV !== 'production' || (process.env.ALLOW_DEV_CODE_IN_RESPONSE || '').toLowerCase() === 'true';
+    const allowDevCode = shouldIncludeDevCodeInResponse();
     if (sendResult.fallback) {
       const payload = { ok: true, warning: 'Cuenta creada, pero no se pudo enviar el correo. Revisa la consola del servidor o el archivo verification_debug.log en la carpeta server.' };
       if (allowDevCode && code) payload.devCode = code;
@@ -556,7 +562,7 @@ app.post('/api/auth/resend', async (req, res) => {
     if (sendResult.sent) {
       return res.json({ ok: true, message: 'Código reenviado. Revisa tu correo.' });
     }
-    const allowDevCodeResend = process.env.NODE_ENV !== 'production' || (process.env.ALLOW_DEV_CODE_IN_RESPONSE || '').toLowerCase() === 'true';
+    const allowDevCodeResend = shouldIncludeDevCodeInResponse();
     if (sendResult.fallback) {
       const payload = { ok: true, warning: 'No se pudo enviar el correo. Revisa verification_debug.log en la carpeta server.' };
       if (allowDevCodeResend && code) payload.devCode = code;

@@ -62,7 +62,10 @@
                 </div>
                 <button type="submit" class="auth-button">Iniciar Sesión</button>
                 <div class="auth-divider"><span>o</span></div>
-                <button type="button" class="auth-button auth-button-google" onclick="handleGoogleLogin()">Continuar con Google</button>
+                <button type="button" class="auth-button auth-button-google" id="googleLoginButton" onclick="handleGoogleLogin()">
+                    <span class="google-icon" aria-hidden="true">G</span>
+                    <span>Continuar con Google</span>
+                </button>
             </form>
 
             <!-- Formulario de Registro -->

@@ -881,9 +881,23 @@ function switchAuthTab(tab) {
     }
 }
 
+function isGoogleLoginConfigured() {
+    return Boolean(supabaseClient && API_BASE);
+}
+
+function setupGoogleLoginButton() {
+    const googleBtn = document.getElementById('googleLoginButton');
+    if (!googleBtn) return;
+    const configured = isGoogleLoginConfigured();
+    googleBtn.disabled = !configured;
+    googleBtn.title = configured
+        ? 'Iniciar sesión con Google'
+        : 'Google login no está configurado todavía';
+}
+
 async function handleGoogleLogin() {
-    if (!supabaseClient || !API_BASE) {
-        alert('Configura SUPABASE_URL y SUPABASE_ANON_KEY en config.js y la URL de la API.');
+    if (!isGoogleLoginConfigured()) {
+        showAuthError('loginForm', 'Inicio con Google no disponible. Configura SUPABASE_URL, SUPABASE_ANON_KEY y API_BASE.');
         return;
     }
     const userType = document.querySelector('input[name="userType"]:checked')?.value || 'employee';
@@ -902,7 +916,7 @@ async function handleGoogleLogin() {
         if (typeof localStorage !== 'undefined') {
             localStorage.removeItem('pluszone_oauth_user_type');
         }
-        alert(e.message || 'No se pudo iniciar sesión con Google. Activa el proveedor Google en Supabase y revisa la URL de redirección.');
+        showAuthError('loginForm', e.message || 'No se pudo iniciar sesión con Google. Activa el proveedor Google en Supabase y revisa la URL de redirección.');
     }
 }
 
@@ -1402,6 +1416,12 @@ function clearAuthErrors() {
     document.querySelectorAll('.auth-error, .auth-success').forEach(el => el.remove());
 }
 
+function shouldShowDevCode() {
+    // Solo para debugging explícito en local:
+    // localStorage.setItem('SHOW_DEV_CODE', 'true')
+    return String(localStorage.getItem('SHOW_DEV_CODE') || '').toLowerCase() === 'true';
+}
+
 // --- Pantalla de verificación (Paso 2 tras registro con API) ---
 function showAuthVerificationStep(email, message, devCode) {
     const authTabs = document.querySelector('.auth-tabs');
@@ -1420,16 +1440,15 @@ function showAuthVerificationStep(email, message, devCode) {
 
     if (msgEl) msgEl.textContent = message || 'Ingresa el código de 7 dígitos que te enviamos por correo.';
     if (devCodeEl) {
-        if (devCode) {
+        if (devCode && shouldShowDevCode()) {
             devCodeEl.textContent = 'Tu código (desarrollo): ' + devCode;
             devCodeEl.style.display = 'block';
-            if (inputEl) inputEl.value = devCode;
         } else {
             devCodeEl.textContent = '';
             devCodeEl.style.display = 'none';
         }
     }
-    if (inputEl && !devCode) inputEl.value = '';
+    if (inputEl) inputEl.value = '';
     if (feedbackEl) { feedbackEl.textContent = ''; feedbackEl.style.color = ''; }
 
     stepEl.style.display = 'block';
@@ -1527,14 +1546,14 @@ async function handleAuthVerifyResend() {
         const resp = await fetch(API_BASE + '/api/auth/resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: pending.email }) });
         const data = await resp.json();
         if (!resp.ok) { setAuthVerifyFeedback(data.error || 'Error al reenviar.', true); if (resendBtn) resendBtn.disabled = false; return; }
-        if (data.devCode) {
+        if (data.devCode && shouldShowDevCode()) {
             window._pendingVerification.devCode = data.devCode;
             const devCodeEl = document.getElementById('authVerifyDevCode');
             const inputEl = document.getElementById('authVerifyCodeInput');
             if (devCodeEl) { devCodeEl.textContent = 'Tu código (desarrollo): ' + data.devCode; devCodeEl.style.display = 'block'; }
             if (inputEl) inputEl.value = data.devCode;
         }
-        setAuthVerifyFeedback(data.devCode ? 'Código de desarrollo actualizado abajo.' : 'Código reenviado. Revisa tu correo.', false);
+        setAuthVerifyFeedback('Código reenviado. Revisa tu correo.', false);
         _authResendCooldown = Date.now() + 30000;
         setTimeout(() => { if (resendBtn) resendBtn.disabled = false; }, 30000);
     } catch (err) {
@@ -1562,16 +1581,15 @@ function openVerifyModal(email, message, devCode) {
     if (!modal) return;
     if (msg) msg.textContent = message || 'Se ha enviado un código de verificación a tu correo. Ingresa el código a continuación.';
     if (devCodeEl) {
-        if (devCode) {
+        if (devCode && shouldShowDevCode()) {
             devCodeEl.textContent = 'Tu código (desarrollo): ' + devCode;
             devCodeEl.style.display = 'block';
-            if (input) input.value = devCode;
         } else {
             devCodeEl.textContent = '';
             devCodeEl.style.display = 'none';
         }
     }
-    if (input && !devCode) input.value = '';
+    if (input) input.value = '';
     if (feedback) {
         feedback.textContent = '';
         feedback.style.color = '#333';
@@ -2954,6 +2972,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (authVerifyConfirmBtn) authVerifyConfirmBtn.addEventListener('click', handleAuthVerifyConfirm);
     if (authVerifyResendBtn) authVerifyResendBtn.addEventListener('click', handleAuthVerifyResend);
     if (authVerifyBackBtn) authVerifyBackBtn.addEventListener('click', handleAuthVerifyBack);
+    setupGoogleLoginButton();
 });
 
 // Restablecer datos de ejemplo (empleados, ofertas, descripciones) desde la pantalla de login

@@ -347,7 +347,7 @@ body {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin: 1rem 0 0.35rem;
+    margin: 0.6rem 0 0.25rem;
     color: var(--medium-gray);
     font-size: 0.8125rem;
 }
@@ -365,10 +365,29 @@ body {
 }
 
 .auth-button-google {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-top: 0.1rem;
     background: var(--white);
     color: #3c4043;
     border: 1px solid #dadce0;
     box-shadow: 0 1px 2px rgba(60, 64, 67, 0.15);
+}
+
+.auth-button-google .google-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #ffffff;
+    background: #4285f4;
+    flex-shrink: 0;
 }
 
 .auth-button-google::before {
