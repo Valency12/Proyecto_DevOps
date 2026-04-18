@@ -935,49 +935,7 @@ async function handleLogin(e) {
     // Limpiar mensajes de error previos
     clearAuthErrors();
 
-    // 1) Supabase Auth (correo lo envía Supabase, sin SMTP)
-    if (supabaseClient && API_BASE) {
-        try {
-            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-            if (!error && data.session) {
-                const { resp, sessionData } = await syncBackendSession(data.session.access_token, userType);
-                if (resp.ok && sessionData.user) {
-                    if (typeof localStorage !== 'undefined') {
-                        localStorage.removeItem('pluszone_oauth_user_type');
-                    }
-                    state.currentUser = {
-                        id: sessionData.user.id,
-                        email: sessionData.user.email,
-                        name: sessionData.user.name,
-                        type: sessionData.user.type,
-                        imageUrl: sessionData.user.imageUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop',
-                        description: sessionData.user.description || '',
-                        techStack: []
-                    };
-                    showAuthSuccess('loginForm', 'Sesión iniciada. Redirigiendo...');
-                    setTimeout(() => {
-                        document.getElementById('authScreen').style.display = 'none';
-                        document.getElementById('app').style.display = 'flex';
-                        showMainApp();
-                        addActivity('Bienvenido a PlusZone', 'Comienza a deslizar para encontrar tu próximo match');
-                    }, 800);
-                    return;
-                }
-            }
-            if (error) {
-                if (error.message && (error.message.includes('Email not confirmed') || error.message.includes('confirm'))) {
-                    showAuthError('loginForm', 'Confirma tu correo antes de iniciar sesión. Revisa tu bandeja (y spam).');
-                    return;
-                }
-                showAuthError('loginForm', error.message || 'Error al iniciar sesión');
-                return;
-            }
-        } catch (e) {
-            console.warn('Supabase login error:', e);
-        }
-    }
-
-    // 2) API legacy (solo si hay URL válida y no estamos en file:// para evitar CORS)
+    // API legacy (solo si hay URL válida y no estamos en file:// para evitar CORS)
     const canUseApi = API_BASE && (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) && window.location.protocol !== 'file:';
     if (canUseApi) try {
         const resp = await fetch(API_BASE + '/api/auth/login', {
@@ -1182,53 +1140,29 @@ async function handleRegister(e) {
     // Limpiar mensajes de error previos
     clearAuthErrors();
 
-    // 1) Supabase Auth (Supabase envía el correo de verificación, sin SMTP ni API externa)
-    if (supabaseClient && API_BASE) {
+    // API legacy (código 7 dígitos por SMTP)
+    const canUseApi = API_BASE && (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) && window.location.protocol !== 'file:';
+    if (canUseApi) {
         try {
-            const redirectTo = (typeof window !== 'undefined' && window.location.origin) ? window.location.origin + (window.location.pathname || '/') : undefined;
-            const { data, error } = await supabaseClient.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: { full_name: name, user_type: userType },
-                    emailRedirectTo: redirectTo
-                }
+            const resp = await fetch(API_BASE + '/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, password, user_type: userType })
             });
-            if (!error) {
-                showAuthSuccess('registerForm', 'Cuenta creada. Revisa tu correo y haz clic en el enlace para confirmar. Luego podrás iniciar sesión.');
+            const data = await resp.json();
+            if (!resp.ok) {
+                showAuthError('registerForm', data.error || 'Error en el registro');
                 return;
             }
-            if (error.message && error.message.toLowerCase().includes('already registered')) {
-                showAuthError('registerForm', 'Este correo ya está registrado. Inicia sesión o usa otro correo.');
-                return;
-            }
-            showAuthError('registerForm', error.message || 'Error en el registro');
+            showAuthSuccess('registerForm', data.message || data.warning || 'Cuenta creada. Revisa tu correo o el código de desarrollo.');
+            window._pendingVerification = { email, password, name, devCode: data.devCode || null };
+            showAuthVerificationStep(email, data.devCode ? 'No se pudo enviar el correo. Usa el código de desarrollo que aparece abajo.' : ('Se ha enviado un código de 7 dígitos a ' + email + '. Revísalo en tu bandeja o usa el código de desarrollo si aparece abajo.'), data.devCode);
             return;
-        } catch (e) {
-            console.error('Supabase signUp error:', e);
-        }
-    }
-
-    // 2) API legacy (código 7 dígitos por SMTP)
-    try {
-        const resp = await fetch(API_BASE + '/api/auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password, user_type: userType })
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-            showAuthError('registerForm', data.error || 'Error en el registro');
+        } catch (err) {
+            console.error(err);
+            showAuthError('registerForm', 'No se pudo conectar con el servidor. Para la demo con API, arranca el servidor (node server/index.js) y vuelve a intentar.');
             return;
         }
-        showAuthSuccess('registerForm', data.message || data.warning || 'Cuenta creada. Revisa tu correo o el código de desarrollo.');
-        window._pendingVerification = { email, password, name, devCode: data.devCode || null };
-        showAuthVerificationStep(email, data.devCode ? 'No se pudo enviar el correo. Usa el código de desarrollo que aparece abajo.' : ('Se ha enviado un código de 7 dígitos a ' + email + '. Revísalo en tu bandeja o usa el código de desarrollo si aparece abajo.'), data.devCode);
-        return;
-    } catch (err) {
-        console.error(err);
-        showAuthError('registerForm', 'No se pudo conectar con el servidor. Para la demo con API, arranca el servidor (node server/index.js) y vuelve a intentar.');
-        return;
     }
 
     // Sin backend: guardar en base de datos local para que el login las encuentre después
