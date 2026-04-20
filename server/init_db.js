@@ -71,28 +71,110 @@ async function run() {
       { email: 'admin2@pluszone.com', name: 'Admin Secundario', password: 'admin123', user_type: 'admin', is_active: true },
       { email: 'j.gonzalez@tecmilenio.mx', name: 'Juan Gonzalez', password: 'demo123', user_type: 'employee', is_active: true },
       { email: 's.ramirez@tecmilenio.mx', name: 'Sofía Ramírez', password: 'demo123', user_type: 'employee', is_active: true },
-      { email: 'empresa1@tecmilenio.mx', name: 'TechCorp', password: 'demo123', user_type: 'company', is_active: true }
+      { email: 'm.lopez@tecmilenio.mx', name: 'María López', password: 'demo123', user_type: 'employee', is_active: true },
+      { email: 'empresa1@tecmilenio.mx', name: 'TechCorp', password: 'demo123', user_type: 'company', is_active: true },
+      { email: 'innovatech@tecmilenio.mx', name: 'Innovatech Solutions', password: 'demo123', user_type: 'company', is_active: true },
+      { email: 'greentech@tecmilenio.mx', name: 'GreenWave Labs', password: 'demo123', user_type: 'company', is_active: true }
     ];
+
+    const profileSeeds = {
+      'j.gonzalez@tecmilenio.mx': {
+        name: 'Juan Gonzalez',
+        description: 'Senior Backend Developer',
+        detailed_description: 'Ingeniero backend especializado en arquitecturas distribuidas, microservicios y soluciones de alta disponibilidad.',
+        tech_stack: ['Node.js', 'PostgreSQL', 'AWS', 'Docker', 'TypeScript'],
+        salary: '$90,000 - $110,000',
+        image_url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&h=400&fit=crop',
+        role: 'candidate',
+        category: 'Backend'
+      },
+      's.ramirez@tecmilenio.mx': {
+        name: 'Sofía Ramírez',
+        description: 'UX/Product Designer',
+        detailed_description: 'Diseñadora UX con experiencia en producto digital, investigación de usuarios y diseño de interfaces accesibles.',
+        tech_stack: ['Figma', 'UX Research', 'Prototyping', 'Design Systems', 'User Testing'],
+        salary: '$70,000 - $90,000',
+        image_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=400&fit=crop',
+        role: 'candidate',
+        category: 'Diseño'
+      },
+      'm.lopez@tecmilenio.mx': {
+        name: 'María López',
+        description: 'Data Scientist',
+        detailed_description: 'Científica de datos con experiencia en modelos predictivos, análisis avanzado y visualización estratégica.',
+        tech_stack: ['Python', 'Machine Learning', 'SQL', 'Power BI', 'TensorFlow'],
+        salary: '$85,000 - $105,000',
+        image_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&h=400&fit=crop',
+        role: 'candidate',
+        category: 'Data Science'
+      },
+      'empresa1@tecmilenio.mx': {
+        name: 'TechCorp',
+        description: 'Empresa tecnológica enfocada en software empresarial.',
+        detailed_description: 'TechCorp desarrolla soluciones B2B para operaciones financieras y logística, con equipos de ingeniería ágiles y cultura de innovación.',
+        tech_stack: [],
+        salary: '$120,000 - $180,000',
+        image_url: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=400&h=400&fit=crop',
+        role: 'job',
+        category: 'Tecnología'
+      },
+      'innovatech@tecmilenio.mx': {
+        name: 'Innovatech Solutions',
+        description: 'Consultora de transformación digital para empresas.',
+        detailed_description: 'Innovatech crea productos SaaS y servicios de consultoría, con foco en automatización, innovación y crecimiento sostenible.',
+        tech_stack: [],
+        salary: '$100,000 - $160,000',
+        image_url: 'https://images.unsplash.com/photo-1494526585095-c41746248156?w=400&h=400&fit=crop',
+        role: 'job',
+        category: 'Consultoría'
+      },
+      'greentech@tecmilenio.mx': {
+        name: 'GreenWave Labs',
+        description: 'Empresa especializada en productos sostenibles e innovación verde.',
+        detailed_description: 'GreenWave Labs apoya startups y grandes compañías en desarrollar tecnología limpia y estrategias de impacto ambiental.',
+        tech_stack: [],
+        salary: '$95,000 - $150,000',
+        image_url: 'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=400&h=400&fit=crop',
+        role: 'job',
+        category: 'Sostenibilidad'
+      }
+    };
 
     for (const u of testUsers) {
       const { rows: exists } = await client.query('SELECT id FROM users WHERE email = $1', [u.email]);
+      let userId;
       if (exists.length === 0) {
         const password_hash = await bcrypt.hash(u.password, 10);
         const { rows: ins } = await client.query(
           `INSERT INTO users (email, password_hash, name, user_type, is_active) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
           [u.email, password_hash, u.name, u.user_type, u.is_active]
         );
-        const userId = ins[0].id;
-        const { rows: prof } = await client.query('SELECT id FROM profiles WHERE user_id = $1', [userId]);
-        if (prof.length === 0) {
-          await client.query(
-            `INSERT INTO profiles (user_id, name, description, role, image_url) VALUES ($1, $2, $3, $4, $5)`,
-            [userId, u.name, u.user_type === 'company' ? 'Empresa de ejemplo' : 'Perfil creado por migración', u.user_type === 'company' ? 'job' : 'candidate', null]
-          );
-        }
+        userId = ins[0].id;
         console.log('Usuario creado:', u.email);
       } else {
+        userId = exists[0].id;
         console.log('Usuario ya existe:', u.email);
+      }
+
+      const { rows: prof } = await client.query('SELECT id FROM profiles WHERE user_id = $1', [userId]);
+      const seed = profileSeeds[u.email];
+      if (seed) {
+        if (prof.length === 0) {
+          await client.query(
+            `INSERT INTO profiles (user_id, name, description, detailed_description, tech_stack, salary, image_url, role, category) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [userId, seed.name, seed.description, seed.detailed_description, JSON.stringify(seed.tech_stack), seed.salary, seed.image_url, seed.role, seed.category]
+          );
+        } else {
+          await client.query(
+            `UPDATE profiles SET name = $1, description = $2, detailed_description = $3, tech_stack = $4, salary = $5, image_url = $6, role = $7, category = $8 WHERE user_id = $9`,
+            [seed.name, seed.description, seed.detailed_description, JSON.stringify(seed.tech_stack), seed.salary, seed.image_url, seed.role, seed.category, userId]
+          );
+        }
+      } else if (prof.length === 0) {
+        await client.query(
+          `INSERT INTO profiles (user_id, name, description, role, image_url) VALUES ($1, $2, $3, $4, $5)`,
+          [userId, u.name, u.user_type === 'company' ? 'Empresa de ejemplo' : 'Perfil creado por migración', u.user_type === 'company' ? 'job' : 'candidate', null]
+        );
       }
     }
 
