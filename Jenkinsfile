@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     // Cada ~5 min Jenkins pregunta a GitHub si hay commits nuevos en main.
-    // Para la presentación también vale "Build Now" justo después del push.
     triggers {
         pollSCM('H/5 * * * *')
     }
@@ -15,35 +14,74 @@ pipeline {
         stage('Checkout (GitHub)') {
             steps {
                 checkout scm
-                sh '''
-                    echo "=== Origen Git (GitHub) ==="
-                    git remote -v || true
-                    git log -1 --oneline
-                '''
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            echo "=== Origen Git (GitHub) ==="
+                            git remote -v || true
+                            git log -1 --oneline
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            echo === Origen Git (GitHub) ===
+                            git remote -v
+                            git log -1 --oneline
+                        '''
+                    }
+                }
             }
         }
 
         stage('Build (info proyecto)') {
             steps {
                 echo 'Construyendo / validando contexto PlusZone...'
-                sh '''
-                    echo "Contenido en raíz del repo:"
-                    ls -la
-                '''
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            echo "Contenido en raíz del repo:"
+                            ls -la
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            echo Contenido en raiz del repo:
+                            dir
+                        '''
+                    }
+                }
             }
         }
 
         stage('Docker (motor del host)') {
             steps {
                 echo 'Comprobando cliente Docker contra el socket del host...'
-                sh 'docker version'
+                script {
+                    if (isUnix()) {
+                        sh 'docker version'
+                    } else {
+                        bat 'docker version'
+                    }
+                }
             }
         }
 
         stage('Build imágenes (Docker Compose)') {
             steps {
                 echo 'Construyendo imágenes del proyecto desde el repo clonado (GitHub)...'
-                sh 'docker compose -f docker-compose.yml build --parallel'
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            docker compose version
+                            docker compose -f docker-compose.yml build --parallel
+                        '''
+                    } else {
+                        bat '''
+                            docker compose version
+                            docker compose -f docker-compose.yml build --parallel
+                        '''
+                    }
+                }
             }
         }
 
