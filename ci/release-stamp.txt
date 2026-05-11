@@ -1,0 +1,3 @@
+# Archivo solo para demos: cambia el número y haz push para disparar CI desde GitHub.
+# (Jenkins puede usar Poll SCM; si no, usa "Build Now" en PlusZone-CI.)
+STAMP=demo-2

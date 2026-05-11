@@ -1,0 +1,28 @@
+# Jenkins para CI/demo (puerto 8090).
+# Solo Jenkins: scripts\jenkins-up.cmd  o  npm.cmd run jenkins:up
+# App + Jenkins: scripts\stack-up.cmd     o  npm.cmd run stack:up
+# (En PowerShell, si npm falla, usa npm.cmd o los .cmd de scripts/)
+#
+# Jenkins en 8090; el front en Docker usa 8888 en el host (ver docker-compose.yml).
+# user: root permite usar el socket Docker del host (típico en Docker Desktop).
+
+services:
+  jenkins:
+    build:
+      context: ./ci/jenkins
+      dockerfile: Dockerfile
+    image: pluszone-jenkins:local
+    container_name: pluszone-jenkins
+    user: "0"
+    ports:
+      - "8090:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_ci_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+    restart: unless-stopped
+
+volumes:
+  jenkins_ci_data:

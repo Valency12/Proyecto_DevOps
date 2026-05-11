@@ -14,7 +14,11 @@
     "python:install": "pip install -r python/requirements.txt",
     "python:dev": "cd python && python3 -m uvicorn main:app --host 127.0.0.1 --port 5050 --reload",
     "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "jenkins:up": "docker compose -f docker-compose.jenkins.yml up -d --build",
+    "jenkins:down": "docker compose -f docker-compose.jenkins.yml down",
+    "stack:up": "docker compose -f docker-compose.yml -f docker-compose.jenkins.yml up -d --build",
+    "stack:down": "docker compose -f docker-compose.yml -f docker-compose.jenkins.yml down"
   },
   "engines": {
     "node": ">=16"

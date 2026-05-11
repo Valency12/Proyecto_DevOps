@@ -35,5 +35,6 @@ services:
     volumes:
       - ./client:/usr/share/nginx/html:ro
     ports:
-      - "8080:80"
+      # 8888 en el host: el 8080 suele estar ocupado (serve, otros contenedores, IDEs).
+      - "8888:80"
     restart: unless-stopped
